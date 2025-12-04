@@ -1,48 +1,133 @@
-# Sentiment RAG Retrieval
 
-This repository captures my thinking process for building a retrieval-only RAG demo. Instead of obsessing over model orchestration, I focused on making every design decision explicit so reviewers can understand why the system behaves the way it does.
+## Customer Sentiment Retrieval
 
-## Why this dataset?
-- **Source**: a tiny slice of Kaggle’s “Sentiment Analysis Dataset (Multi-Source)” (≈100 rows).
-- **Reasoning**: the assignment asked for <30k characters and ≤200 rows. This dataset already mixes domains (support tickets, travel reviews, product feedback) and comes with sentiment labels, timestamps, and confidence scores. That gives retrieval queries something meaningful to latch onto (sentiment, location, channel) while staying cheap to embed.
-- **Intended questions**: “Show confident negative experiences with customer support”, “What positive travel reviews mention Sydney?”, “Are there users in Berlin who like the Spotify experience?”. Each query is grounded in metadata present in the CSV.
+This project is a small demo of how the retrieval part of a RAG system works. There is no LLM generation, only searching for the most relevant text chunks using embeddings.
 
-## Pipeline decisions
 
-### Chunking
-- **Strategy**: character-based split (`CHUNK_SIZE=260`, `CHUNK_OVERLAP=40`).
-- **Why**: Each entry is short but I still wanted to avoid slicing mid-sentence when a review is slightly longer. Overlap keeps metadata aligned and preserves context for borderline cases, yet the small dataset keeps costs low.
-- **Metadata**: each chunk carries sentiment, source, date, user/id, location, confidence, chunk index, and char positions so the UI can surface meaningful context (e.g., “Chunk 0 • Sentiment: Positive • Source: TripAdvisor”).
 
-### Embeddings
-- **Model**: `text-embedding-3-small`.
-- **Rationale**: balances quality and price. We only embed a few hundred chunks, so the total cost is negligible (<$0.001). A stronger model would be overkill; a weaker one would make cross-domain retrieval noisy.
-- **Implementation**: `backend/app/embeddings.py` wraps the OpenAI client. I intentionally kept it thin—if I swap providers later, it’s one file.
+## Project Structure
+```bash
+rag_assignment/
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+├── data/
+│   └── dataset.csv
+├── backend/
+│   └── app/
+│       ├── main.py          # FastAPI bootstrap + routes
+│       ├── ingestion.py     # CSV sanitation + chunking
+│       ├── embeddings.py    # OpenAI embedding helper
+│       └── retrieval.py     # Chroma persistence + querying
+├── frontend/
+│   ├── index.html           # Minimal UI shell
+│   ├── styles.css           # Layout/typography
+│   └── app.js               # Fetch /query and render results
+└── vector_store/           
+    
+```
 
-### Vector store
-- **Choice**: local Chroma PersistentClient.
-- **Reasoning**: No need for Pinecone/Weaviate overhead. Chroma lets me rebuild on every startup and store files under `vector_store/` (git-ignored) without external services. It defaults to cosine similarity (HNSW), which matches the embedding model.
-- **Rebuild policy**: on startup I wipe the collection to ensure the index matches the CSV. With such a small dataset, rebuild time is seconds.
 
-### Retrieval parameters
-- **Top-K & min-score**: loaded from env (`DEFAULT_TOP_K`, `DEFAULT_MIN_SCORE`) and enforced server-side. I removed UI controls after realizing they weakened the “document decisions” story: I’d rather demonstrate deliberate defaults than expose sliders.
-- **Why `min_score=0.62` initially**: empirical check—anything below ~0.6 felt like noise. I documented it, but it’s easy to change in `.env` if the reviewer wants to explore.
-- **Query flow**: each request embeds the question, queries Chroma for up to `top_k*2` candidates (to allow filtering), and returns the best matches that pass the score threshold. No synonyms, no prompt engineering—pure similarity.
 
-## Frontend choices
-- **Tech**: plain HTML/CSS/JS (no build step). The UI encourages the reviewer to focus on retrieval output rather than UI widgets.
-- **Design**: simple form with a query textarea and a hint explaining that retrieval parameters are env-driven. Results show chunk metadata pills so you can understand “why” a chunk was returned.
-- **Fetch logic**: error handling is minimal but clear; it surfaces FastAPI errors (e.g., missing query or API key).
 
-## Backend architecture
-- `backend/app/main.py` orchestrates everything:
-  - Loads `.env` to capture dataset paths, vector store location, chunking params, embedding model, retrieval thresholds.
-  - On startup: loads the CSV (`ingestion.py`), chunks it, builds embeddings, and writes to Chroma (`retrieval.py`).
-  - Endpoints: `/` serves the frontend, `/health` for liveness, `/config` exposes current settings (useful when presenting), `/query` performs retrieval.
-- `ingestion.py`: handles the csv quirks (quote sanitization) and chunk metadata. Reasoning: I wanted deterministic ingestion to explain exactly what goes into each chunk.
-- `retrieval.py`: purposely lean—no hybrid search, no reranking—so I can describe the entire retrieval stack in a few sentences.
+## Dataset
 
-## Setup instructions
+ Sentiment Analysis Dataset CSV. 
+ I used this dataset because it has mixed domains (support tickets, travel reviews, product feedback) and comes with sentiment labels, timestamps, and confidence scores, and answers the assgiment dataset limits ( <30k characters and ≤200 rows).
+  The mixed Domains and lables give the retrieval queries something to latch onto (location, sentiment, etc..).
+  
+
+
+
+  
+## RAG Pipeline
+
+How the pipeline works
+1. **Chunking**
+
+- I split each review into small text “chunks.”
+
+- Chunk size is 260 characters, overlap 40 characters.
+
+- The overlap helps avoid cutting sentences too aggressively.
+
+- Every chunk keeps metadata (sentiment, source, location, etc.) so we can show it later.
+
+2. **Embeddings**
+
+- Uses the OpenAI model text-embedding-3-small.
+
+- It’s good enough for a demo project like this one.
+
+- All chunks are embedded once during app startup.
+
+3. **Vector database**
+
+- I chose Chroma because it works locally and is simple to use.
+
+- On each restart, the database is cleared and rebuilt. (This keeps things clean and the dataset is small anyway).
+
+4. **Retrieval settings**
+
+- The system is configured with defaults (DEFAULT_TOP_K = 4, DEFAULT_MIN_SCORE = 0.55) that should balance precision and recall on this dataset. The UI exposes them so we can change and see how different settings affect retrieval behavior.
+
+- Ive picked Top-K neighbors to be 4 because it gives enough variety given the size of the dataset. Despire for the dataset being relativley small, for the min_score ive chosen 0.55 because its the middle ground fpr producing chunks that  match user's querry well enoguht.
+
+**How retrieval works**
+
+1. User types a question.
+
+2. The question is embedded.
+
+3. Chroma returns the most similar chunks.
+
+4. The backend filters out chunks below the minimum score.
+
+5. The results are shown in the UI.
+
+
+
+
+
+## Frontend
+
+Plain HTML, CSS, and a little JavaScript.
+
+User enters the query and can adjust retrieval params (for the purpose of this demo of course).
+
+Results appear as cards that show:
+- the chunk text
+- similarity score
+- metadata (sentiment, user id, source, etc.)
+
+
+
+
+## Backend
+
+**Main.py**
+- Loads environment variables
+- Loads the dataset, chunks it, builds embeddings
+- Sets up the vectorDB
+- Provides /query, /config, and /health endpoints
+
+**ingestion.py**
+- cleans the CSV
+- Splits text into chunks
+- Prepares metadata
+
+**embeddings.py**
+- Wrapper around OpenAI embeddings
+
+**retrieval.py**
+- Handles Chroma collection
+- Runs similarity search
+
+
+
+
+## How to Run
+
 1. Use [uv](https://github.com/astral-sh/uv) to install dependencies:
    ```bash
    uv sync
@@ -57,9 +142,13 @@ This repository captures my thinking process for building a retrieval-only RAG d
    ```bash
    uv run uvicorn backend.app.main:app --reload
    ```
-4. Visit http://127.0.0.1:8000. The UI only accepts the query text; everything else is driven by env values to keep the decision log tight.
+4. Visit http://127.0.0.1:8000.
 
-## API reference
+
+
+
+
+## API Refrence
 
 `POST /query`
 
@@ -72,17 +161,12 @@ This repository captures my thinking process for building a retrieval-only RAG d
 Response includes the original query and an array of chunks with `chunk_id`, `text`, `score`, and metadata.
 
 Supporting endpoints:
-- `GET /health` – quick status check.
+
 - `GET /config` – exposes the current chunking + retrieval configuration (handy during demos).
 
-## Thought process summary
-1. **Constraints first**: the assignment capped dataset size and cost, so I intentionally selected a dataset that already meets those limits and documents user sentiment.
-2. **Explainable defaults**: Rather than add toggles everywhere, I favored environment variables with documented reasoning (chunk size, overlap, retrieval thresholds). This makes the reviewer’s job easier when assessing trade-offs.
-3. **Keep UI humble**: a minimalist UI prevents scope creep and highlights retrieval behavior. It also stresses that this is a retrieval component, not a full chatbot.
-4. **Local-first tooling**: by using uv and Chroma, the reviewer can spin up the project offline (aside from the OpenAI call) without provisioning services.
-5. **Future levers** (documented for completeness):
-   - Add chunk hashing to skip re-embedding unchanged data.
-   - Introduce simple filters (e.g., sentiment dropdown) once the reasoning section already justifies the dataset.
-   - Experiment with reranking or cross-encoder validation if retrieval quality ever becomes the bottleneck.
 
-This README is as much a narrative as documentation—it should help evaluators see that every choice (dataset, chunking, embedding model, vector DB, UI minimalism) was deliberate and aligned with the assignment’s constraints.
+
+
+## Examples
+
+**Intended questions**: “Show confident negative experiences with customer support”, “What positive travel reviews mention Sydney?”, “Are there users in Berlin who like the Spotify experience?”.
