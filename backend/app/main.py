@@ -102,11 +102,6 @@ def serve_index() -> HTMLResponse:
     return HTMLResponse(index_file.read_text(encoding="utf-8"))
 
 
-@app.get("/health")
-def health_check() -> Dict[str, str]:
-    return {"status": "ok"}
-
-
 @app.get("/config", response_model=ConfigResponse)
 def get_config() -> ConfigResponse:
     return ConfigResponse(

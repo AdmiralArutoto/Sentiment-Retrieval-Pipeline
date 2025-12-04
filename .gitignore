@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment secrets/config
+.env
+.env.*
+
+# Local vector database artifacts
+vector_store/
