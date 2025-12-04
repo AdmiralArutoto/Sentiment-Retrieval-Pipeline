@@ -1,0 +1,13 @@
+[project]
+name = "rag-assignment"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.3.5",
+    "fastapi>=0.123.6",
+    "openai>=2.8.1",
+    "python-dotenv>=1.2.1",
+    "uvicorn>=0.38.0",
+]
