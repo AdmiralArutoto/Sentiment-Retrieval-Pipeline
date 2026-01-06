@@ -33,7 +33,7 @@ rag_assignment/
 ## Dataset
 
  Sentiment Analysis Dataset CSV. 
- I used this dataset because it has mixed domains (support tickets, travel reviews, product feedback) and comes with sentiment labels, timestamps, and confidence scores, and answers the assgiment dataset limits ( <30k characters and ≤200 rows).
+ I used this dataset because it has mixed domains (support tickets, travel reviews, product feedback) and comes with sentiment labels, timestamps, and confidence scores, and is relativly lightweight ( <30k characters and ≤200 rows).
   The mixed Domains and lables give the retrieval queries something to latch onto (location, sentiment, etc..).
   
 
