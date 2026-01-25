@@ -1,13 +1,13 @@
 
-## Customer Sentiment Retrieval
+## Customer Sentiment RAG
 
-This project is a small demo of how the retrieval part of a RAG system works. There is no LLM generation, only searching for the most relevant text chunks using embeddings.
+Small demo that runs a full retrieval-augmented generation loop: chunk + embed a sentiment dataset, retrieve similar chunks, and generate grounded answers with citations.
 
 
 
 ## Project Structure
 ```bash
-rag_assignment/
+Sentiment-Retrieval-Pipeline/
 ├── README.md
 ├── requirements.txt
 ├── pyproject.toml
@@ -15,14 +15,17 @@ rag_assignment/
 │   └── dataset.csv
 ├── backend/
 │   └── app/
-│       ├── main.py          # FastAPI bootstrap + routes
+│       ├── main.py          # FastAPI bootstrap + app state
+│       ├── routes.py        # Routes: /, /config, /query, /generate
+│       ├── schemas.py       # Pydantic models + defaults
 │       ├── ingestion.py     # CSV sanitation + chunking
 │       ├── embeddings.py    # OpenAI embedding helper
-│       └── retrieval.py     # Chroma persistence + querying
+│       ├── retrieval.py     # Chroma persistence + querying
+│       └── generation.py    # Grounded generation with citations
 ├── frontend/
-│   ├── index.html           # Minimal UI shell
-│   ├── styles.css           # Layout/typography
-│   └── app.js               # Fetch /query and render results
+│   ├── index.html           # UI shell and styles
+│   ├── styles.css           # (minimal) layout/typography
+│   └── app.js               # Fetch /generate, render answer + chunks
 └── vector_store/           
     
 ```
@@ -32,58 +35,34 @@ rag_assignment/
 
 ## Dataset
 
- Sentiment Analysis Dataset CSV. 
- I used this dataset because it has mixed domains (support tickets, travel reviews, product feedback) and comes with sentiment labels, timestamps, and confidence scores, and is relativly lightweight ( <30k characters and ≤200 rows).
-  The mixed Domains and lables give the retrieval queries something to latch onto (location, sentiment, etc..).
-  
+Sentiment Analysis Dataset CSV.
+Mixed domains (support tickets, travel reviews, product feedback) with sentiment labels, timestamps, and confidence scores. Lightweight (<30k chars, ≤200 rows) so rebuilds are fast. Metadata like sentiment, location, and source make retrieval demos informative.
 
 
 
   
-## RAG Pipeline
+## RAG Pipeline (demo defaults)
 
-How the pipeline works
-1. **Chunking**
+1) **Chunking**  
+- 260-char windows with 40-char overlap to avoid cutting sentences too harshly.  
+- Each chunk keeps metadata (sentiment, source, location, etc.).
 
-- I split each review into small text “chunks.”
+2) **Embeddings**  
+- OpenAI `text-embedding-3-small`.  
+- All chunks embedded once on startup.
 
-- Chunk size is 260 characters, overlap 40 characters.
+3) **Vector DB**  
+- Chroma persistent client (local directory).  
+- Collection dropped/rebuilt on startup (keeps demo clean; dataset is tiny).
 
-- The overlap helps avoid cutting sentences too aggressively.
+4) **Retrieval**  
+- Defaults: `DEFAULT_TOP_K=4`, `DEFAULT_MIN_SCORE=0.62` (configurable via env and UI).  
+- Filters out low-score chunks.
 
-- Every chunk keeps metadata (sentiment, source, location, etc.) so we can show it later.
-
-2. **Embeddings**
-
-- Uses the OpenAI model text-embedding-3-small.
-
-- It’s good enough for a demo project like this one.
-
-- All chunks are embedded once during app startup.
-
-3. **Vector database**
-
-- I chose Chroma because it works locally and is simple to use.
-
-- On each restart, the database is cleared and rebuilt. (This keeps things clean and the dataset is small anyway).
-
-4. **Retrieval settings**
-
-- The system is configured with defaults (DEFAULT_TOP_K = 4, DEFAULT_MIN_SCORE = 0.55) that should balance precision and recall on this dataset. The UI exposes them so we can change and see how different settings affect retrieval behavior.
-
-- Ive picked Top-K neighbors to be 4 because it gives enough variety given the size of the dataset. Despire for the dataset being relativley small, for the min_score ive chosen 0.55 because its the middle ground fpr producing chunks that  match user's querry well enoguht.
-
-**How retrieval works**
-
-1. User types a question.
-
-2. The question is embedded.
-
-3. Chroma returns the most similar chunks.
-
-4. The backend filters out chunks below the minimum score.
-
-5. The results are shown in the UI.
+5) **Generation**  
+- OpenAI Responses API (`GENERATION_MODEL`, default `gpt-4.1-mini`).  
+- Prompt forces grounding and chunk-id citations (`[record-XX-chunk-YY]`).  
+- If context is empty, responds that it cannot answer from provided context.
 
 
 
@@ -91,58 +70,43 @@ How the pipeline works
 
 ## Frontend
 
-Plain HTML, CSS, and a little JavaScript.
-
-User enters the query and can adjust retrieval params (for the purpose of this demo of course).
-
-Results appear as cards that show:
-- the chunk text
-- similarity score
-- metadata (sentiment, user id, source, etc.)
+Plain HTML/CSS/JS. Users enter a query and tweak `top_k`, `min_score`, and max output tokens.  
+The UI calls `/generate`, shows the grounded answer, then the supporting chunks with scores and metadata.
 
 
 
 
 ## Backend
 
-**Main.py**
-- Loads environment variables
-- Loads the dataset, chunks it, builds embeddings
-- Sets up the vectorDB
-- Provides /query, /config, and /health endpoints
-
-**ingestion.py**
-- cleans the CSV
-- Splits text into chunks
-- Prepares metadata
-
-**embeddings.py**
-- Wrapper around OpenAI embeddings
-
-**retrieval.py**
-- Handles Chroma collection
-- Runs similarity search
+- **main.py**: loads env, builds chunks/embeddings/vector store on startup, wires app state + router.  
+- **routes.py**: `/`, `/config`, `/query`, `/generate`.  
+- **schemas.py**: Pydantic models + defaults for retrieval/generation.  
+- **ingestion.py**: CSV cleanup + chunking + metadata.  
+- **embeddings.py**: OpenAI embedding helper.  
+- **retrieval.py**: Chroma persistence + similarity search.  
+- **generation.py**: Grounded generation via OpenAI Responses API with citations.
 
 
 
 
 ## How to Run
 
-1. Use [uv](https://github.com/astral-sh/uv) to install dependencies:
+1. Install dependencies (via uv or pip):
    ```bash
    uv sync
+   # or: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
    ```
 2. Configure environment:
    ```bash
    cp .env.example .env
-   # add OPENAI_API_KEY
-   # optionally tweak CHUNK_SIZE, CHUNK_OVERLAP, DEFAULT_TOP_K, DEFAULT_MIN_SCORE, etc.
+   # set OPENAI_API_KEY
+   # optional: CHUNK_SIZE, CHUNK_OVERLAP, DEFAULT_TOP_K, DEFAULT_MIN_SCORE, GENERATION_MODEL, DEFAULT_MAX_OUTPUT_TOKENS
    ```
-3. Run the API + UI:
+3. Run API + UI:
    ```bash
    uv run uvicorn backend.app.main:app --reload
    ```
-4. Visit http://127.0.0.1:8000.
+4. Open http://127.0.0.1:8000
 
 
 
@@ -162,7 +126,20 @@ Response includes the original query and an array of chunks with `chunk_id`, `te
 
 Supporting endpoints:
 
-- `GET /config` – exposes the current chunking + retrieval configuration (handy during demos).
+- `GET /config` – exposes current chunking + retrieval + generation config (handy during demos).
+
+`POST /generate`
+
+```json
+{
+  "query": "positive travel experiences",
+  "top_k": 4,
+  "min_score": 0.62,
+  "max_output_tokens": 256
+}
+```
+
+Returns the grounded `answer` plus `citations` (array of chunks with ids/metadata/scores).
 
 
 
