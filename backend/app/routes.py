@@ -6,7 +6,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from .schemas import ChunkResponse, ConfigResponse, QueryRequest, QueryResponse
+from .schemas import (
+    ChunkResponse,
+    Citation,
+    ConfigResponse,
+    GenerateRequest,
+    GenerateResponse,
+    QueryRequest,
+    QueryResponse,
+)
 
 router = APIRouter()
 
@@ -38,8 +46,10 @@ def get_config(state: Any = Depends(get_app_state)) -> ConfigResponse:
         chunk_total=state.chunk_total,
         default_top_k=state.default_top_k,
         default_min_score=state.default_min_score,
+        default_max_output_tokens=state.default_max_output_tokens,
         vector_db="Chroma (local persistent)",
         embedding_model=state.embedding_model,
+        generation_model=state.generation_model,
     )
 
 
@@ -59,4 +69,32 @@ def query_rag(request: QueryRequest, state: Any = Depends(get_app_state)) -> Que
     return QueryResponse(
         query=request.query,
         results=[ChunkResponse(**result) for result in results],
+    )
+
+
+@router.post("/generate", response_model=GenerateResponse)
+def generate_answer(request: GenerateRequest, state: Any = Depends(get_app_state)) -> GenerateResponse:
+    vector_retriever = state.vector_retriever
+    generation_service = state.generation_service
+
+    if vector_retriever is None or generation_service is None:
+        raise HTTPException(status_code=503, detail="Services not initialized yet.")
+
+    try:
+        results = vector_retriever.query(request.query, request.top_k, request.min_score)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    answer = generation_service.generate(
+        question=request.query,
+        contexts=results,
+        max_output_tokens=request.max_output_tokens,
+    )
+
+    return GenerateResponse(
+        query=request.query,
+        answer=answer,
+        citations=[Citation(**result) for result in results],
     )

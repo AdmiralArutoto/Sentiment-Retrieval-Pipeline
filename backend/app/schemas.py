@@ -10,6 +10,7 @@ load_dotenv()
 
 DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "4"))
 DEFAULT_MIN_SCORE = float(os.getenv("DEFAULT_MIN_SCORE", "0.62"))
+DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("DEFAULT_MAX_OUTPUT_TOKENS", "256"))
 
 
 class QueryRequest(BaseModel):
@@ -38,5 +39,27 @@ class ConfigResponse(BaseModel):
     chunk_total: int
     default_top_k: int
     default_min_score: float
+    default_max_output_tokens: int
     vector_db: str
     embedding_model: str
+    generation_model: str
+
+
+class Citation(BaseModel):
+    chunk_id: str
+    score: float
+    text: str
+    metadata: Dict[str, Any]
+
+
+class GenerateRequest(BaseModel):
+    query: str = Field(..., description="User question to answer using retrieved context.")
+    top_k: int = Field(DEFAULT_TOP_K, ge=1, le=10)
+    min_score: float = Field(DEFAULT_MIN_SCORE, ge=0.0, le=1.0)
+    max_output_tokens: int = Field(DEFAULT_MAX_OUTPUT_TOKENS, ge=32, le=2048)
+
+
+class GenerateResponse(BaseModel):
+    query: str
+    answer: str
+    citations: List[Citation]

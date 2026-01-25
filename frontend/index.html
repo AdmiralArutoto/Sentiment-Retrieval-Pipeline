@@ -50,6 +50,11 @@
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 0.75rem;
       }
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
       button {
         font: inherit;
         padding: 0.85rem 1rem;
@@ -79,6 +84,14 @@
         padding: 1rem;
         margin-bottom: 1rem;
         background: #f8fafc;
+      }
+      .answer-card {
+        border: 1px solid #c7d2fe;
+        background: #eef2ff;
+        border-radius: 10px;
+        padding: 1rem;
+        font-size: 1rem;
+        white-space: pre-wrap;
       }
       .result-meta {
         display: flex;
@@ -122,28 +135,50 @@
           ></textarea>
 
           <div class="controls">
-            <label for="top-k">Top-K</label>
-            <input id="top-k" name="top-k" type="number" min="1" max="10" value="4" />
+            <div class="control-group">
+              <label for="top-k">Top-K</label>
+              <input id="top-k" name="top-k" type="number" min="1" max="10" value="4" />
+            </div>
 
-            <label for="min-score">Min score</label>
-            <input
-              id="min-score"
-              name="min-score"
-              type="number"
-              min="0"
-              max="1"
-              step="0.01"
-              value="0.62"
-            />
+            <div class="control-group">
+              <label for="min-score">Min score</label>
+              <input
+                id="min-score"
+                name="min-score"
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value="0.62"
+              />
+            </div>
+
+            <div class="control-group">
+              <label for="max-output-tokens">Max output tokens</label>
+              <input
+                id="max-output-tokens"
+                name="max-output-tokens"
+                type="number"
+                min="32"
+                max="2048"
+                step="16"
+                value="256"
+              />
+            </div>
           </div>
 
-          <button type="submit">Retrieve context</button>
+          <button type="submit">Retrieve + Generate</button>
         </form>
         <div id="status" class="status"></div>
       </section>
 
       <section class="panel results" aria-live="polite">
-        <h2>Retrieved chunks</h2>
+        <h2>Generated answer</h2>
+        <div id="answer" class="answer-card">Answer will appear here.</div>
+      </section>
+
+      <section class="panel results" aria-live="polite">
+        <h2>Supporting chunks</h2>
         <div id="results"></div>
       </section>
     </main>
@@ -153,18 +188,45 @@
       const queryInput = document.getElementById("query");
       const topKInput = document.getElementById("top-k");
       const minScoreInput = document.getElementById("min-score");
+      const maxTokensInput = document.getElementById("max-output-tokens");
       const resultsContainer = document.getElementById("results");
       const statusEl = document.getElementById("status");
+      const answerEl = document.getElementById("answer");
 
       const setStatus = (message, isError = false) => {
         statusEl.textContent = message;
         statusEl.style.color = isError ? "#b91c1c" : "#475569";
       };
 
+      const applyConfigDefaults = (config) => {
+        if (config?.default_top_k !== undefined) topKInput.value = config.default_top_k;
+        if (config?.default_min_score !== undefined) minScoreInput.value = config.default_min_score;
+        if (config?.default_max_output_tokens !== undefined)
+          maxTokensInput.value = config.default_max_output_tokens;
+        if (config?.embedding_model) {
+          setStatus(`Using embedding model ${config.embedding_model} and generation model ${config.generation_model}.`);
+        }
+      };
+
+      const loadConfigDefaults = async () => {
+        try {
+          const response = await fetch("/config");
+          if (!response.ok) return;
+          const config = await response.json();
+          applyConfigDefaults(config);
+        } catch (error) {
+          console.warn("Could not load server defaults", error);
+        }
+      };
+
+      const renderAnswer = (answer) => {
+        answerEl.textContent = answer || "No answer generated from the available context.";
+      };
+
       const renderResults = (results) => {
         resultsContainer.innerHTML = "";
         if (!results.length) {
-          resultsContainer.innerHTML = "<p>No chunks met the similarity threshold.</p>";
+          resultsContainer.innerHTML = "<p>No supporting chunks met the similarity threshold.</p>";
           return;
         }
 
@@ -174,6 +236,7 @@
           wrapper.innerHTML = `
             <div class="result-meta">
               <span class="meta-pill">#${index + 1}</span>
+              <span class="meta-pill">${result.chunk_id}</span>
               <span class="meta-pill">Chunk ${result.metadata.chunk_index}</span>
               <span class="meta-pill">Score: ${result.score}</span>
               <span class="meta-pill">Sentiment: ${result.metadata.sentiment}</span>
@@ -193,6 +256,7 @@
         const query = queryInput.value.trim();
         const topK = Number(topKInput.value) || 4;
         const minScore = Number(minScoreInput.value) || 0.62;
+        const maxTokens = Number(maxTokensInput.value) || 256;
 
         if (!query) {
           setStatus("Please enter a query.", true);
@@ -201,13 +265,18 @@
 
         const submitButton = form.querySelector("button");
         submitButton.disabled = true;
-        setStatus("Fetching matching chunks...");
+        setStatus("Retrieving context and generating answer...");
 
         try {
-          const response = await fetch("/query", {
+          const response = await fetch("/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query, top_k: topK, min_score: minScore }),
+            body: JSON.stringify({
+              query,
+              top_k: topK,
+              min_score: minScore,
+              max_output_tokens: maxTokens,
+            }),
           });
 
           if (!response.ok) {
@@ -216,8 +285,9 @@
           }
 
           const payload = await response.json();
-          renderResults(payload.results);
-          setStatus(`Found ${payload.results.length} chunk(s).`);
+          renderAnswer(payload.answer);
+          renderResults(payload.citations || []);
+          setStatus(`Generated answer with ${payload.citations?.length ?? 0} supporting chunk(s).`);
         } catch (error) {
           console.error(error);
           setStatus(error.message || "Something went wrong.", true);
@@ -225,6 +295,8 @@
           submitButton.disabled = false;
         }
       });
+
+      loadConfigDefaults();
     </script>
   </body>
 </html>
